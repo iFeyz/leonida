@@ -32,7 +32,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "../src/bcpack.h"
+#include "../src/bcpack_dadacap.h"
 #include "../src/shader_library.h"  // leonida::zlib_inflate
 #include "dstorage_xs_abi.h"
 #include "shims.h"
@@ -944,7 +944,7 @@ private:
         }
         size_t guessed = 0;
         const char* why = "the zlib stream";
-        decoded = decoded && leonida::bcpack::decode(source.data(), source.size(), mode, blocks.data(), blocks.size(), guessed, why);
+        decoded = decoded && leonida::bcpack_dc::decode(source.data(), source.size(), mode, blocks.data(), blocks.size(), guessed, why);
         set_decompression_pending(-1);
         if (!decoded) {
             log_once(why, (std::string("a BCPack request could not be decoded: ") + why).c_str());

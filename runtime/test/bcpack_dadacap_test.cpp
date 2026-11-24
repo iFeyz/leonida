@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "../src/bcpack.h"
+#include "../src/bcpack_dadacap.h"
 
 namespace {
 
@@ -70,7 +70,7 @@ int decode_file(char** argv) {
     std::fclose(in);
     std::size_t guessed = 0;
     const char* why = "";
-    if (!leonida::bcpack::decode(raw.data(), raw.size(), unsigned(std::atoi(argv[1])), out.data(), out.size(), guessed, why)) {
+    if (!leonida::bcpack_dc::decode(raw.data(), raw.size(), unsigned(std::atoi(argv[1])), out.data(), out.size(), guessed, why)) {
         std::printf("refused: %s\n", why);
         return 1;
     }
@@ -91,23 +91,23 @@ int main(int argc, char** argv) {
     for (const Fixture& f : fixtures) {
         const auto raw = bytes(f.packed), want = bytes(f.blocks);
         std::vector<std::uint8_t> out(want.size());
-        check(leonida::bcpack::decode(raw.data(), raw.size(), f.codec, out.data(), out.size(), guessed, why) && out == want &&
+        check(leonida::bcpack_dc::decode(raw.data(), raw.size(), f.codec, out.data(), out.size(), guessed, why) && out == want &&
                   guessed == 0,
               ("mode " + std::to_string(f.codec) + " decodes to the same blocks as the Python decoder").c_str());
         bool refused = true;
         for (std::size_t n = 0; n < raw.size(); ++n)  // a cut stream runs out of input, whatever lane it is in
-            refused &= !leonida::bcpack::decode(raw.data(), n, f.codec, out.data(), out.size(), guessed, why);
+            refused &= !leonida::bcpack_dc::decode(raw.data(), n, f.codec, out.data(), out.size(), guessed, why);
         check(refused, "every shorter stream is refused");
         for (std::size_t n = 0; n < raw.size(); ++n) {  // a damaged one ends, in either way
             auto bad = raw;
             bad[n] ^= 0x5A;
-            leonida::bcpack::decode(bad.data(), bad.size(), f.codec, out.data(), out.size(), guessed, why);
+            leonida::bcpack_dc::decode(bad.data(), bad.size(), f.codec, out.data(), out.size(), guessed, why);
         }
-        check(!leonida::bcpack::decode(raw.data(), raw.size(), f.codec, out.data(), out.size() - 4, guessed, why),
+        check(!leonida::bcpack_dc::decode(raw.data(), raw.size(), f.codec, out.data(), out.size() - 4, guessed, why),
               "a size that is not whole blocks is refused");
     }
     std::uint8_t one = 0;
-    check(!leonida::bcpack::decode(&one, 1, 2, &one, 0, guessed, why), "mode 2 (BC2) is not supported");
+    check(!leonida::bcpack_dc::decode(&one, 1, 2, &one, 0, guessed, why), "mode 2 (BC2) is not supported");
     std::printf("%d checks, %d failures\n", checks, failures);
     return failures != 0;
 }

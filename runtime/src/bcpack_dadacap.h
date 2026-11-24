@@ -23,9 +23,9 @@
 #include <string_view>
 #include <vector>
 
-#include "bcpack_tables.h"
+#include "bcpack_dadacap_tables.h"
 
-namespace leonida::bcpack {
+namespace leonida::bcpack_dc {
 
 inline constexpr int kMaxLanes = 16;
 inline constexpr std::uint32_t kHome = 1u << 24;  // the rANS lower bound, every fragment's end state
@@ -646,4 +646,4 @@ inline bool decode(const std::uint8_t* raw, std::size_t size, unsigned codec, st
     }
 }
 
-}  // namespace leonida::bcpack
+}  // namespace leonida::bcpack_dc

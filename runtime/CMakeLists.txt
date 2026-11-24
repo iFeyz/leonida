@@ -311,9 +311,9 @@ if(WIN32 AND LEONIDA_BUILD_WINDOWS_RUNTIME)
   target_compile_options(cpu_emulation_test PRIVATE /W4 /permissive- /utf-8)
 
   # The BCPack decoder of the DirectStorage shim: synthetic chunks against what tools/bcpack.py decodes. No game data.
-  add_executable(bcpack_test test/bcpack_test.cpp)
-  target_compile_options(bcpack_test PRIVATE /W4 /permissive- /utf-8)
-  target_compile_definitions(bcpack_test PRIVATE _CRT_SECURE_NO_WARNINGS)
+  add_executable(bcpack_dadacap_test test/bcpack_dadacap_test.cpp)
+  target_compile_options(bcpack_dadacap_test PRIVATE /W4 /permissive- /utf-8)
+  target_compile_definitions(bcpack_dadacap_test PRIVATE _CRT_SECURE_NO_WARNINGS)
 
   # Xbox DirectStorage (DStorageGetFactory under dstorage_xs.dll, xcrdapi.dll and dstorage.dll) over synthetic files:
   # GAME: paths through the file shims, queues, status arrays, fences and errors. No GPU, no game data.
