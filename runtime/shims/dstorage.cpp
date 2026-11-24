@@ -21,6 +21,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <memory>
@@ -32,6 +33,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "../src/bcpack.h"
 #include "../src/bcpack_dadacap.h"
 #include "../src/shader_library.h"  // leonida::zlib_inflate
 #include "dstorage_xs_abi.h"
@@ -917,8 +919,93 @@ private:
         return guarded_move(r.Destination, result.data(), result.size()) ? S_OK : E_DSTORAGE_ACCESS_VIOLATION;
     }
 
+    // Test branch (A/B on the retail title): which BCPack decoder serves a request. By default the RT-BCPACK-DECODER
+    // library (src/bcpack.h, lenient: blocks resting on unknown history are decoded and counted). With
+    // LEONIDA_BCPACK_IMPL=dadacap, the prototype's own decoder (src/bcpack_dadacap.h). With LEONIDA_BCPACK_CROSSCHECK=1
+    // every request is decoded by both, the chosen one's blocks are used, and a summary line counts where the two
+    // agree or differ (counts only, no data) at every power-of-two request.
+    static bool use_dadacap() {
+        static const bool v = [] {
+            const char* s = std::getenv("LEONIDA_BCPACK_IMPL");
+            return s && std::string(s) == "dadacap";
+        }();
+        return v;
+    }
+    static bool crosscheck() {
+        static const bool v = [] {
+            const char* s = std::getenv("LEONIDA_BCPACK_CROSSCHECK");
+            return s && *s && *s != '0';
+        }();
+        return v;
+    }
+
+    static bool decode_bcpack(const std::vector<uint8_t>& source, unsigned mode, std::vector<uint8_t>& blocks,
+                              size_t& guessed, const char*& why) {
+        const auto ours = [&](std::vector<uint8_t>& out, size_t& g, const char*& w) {
+            const leonida::bcpack::Result r =
+                leonida::bcpack::decode(source, mode, out, leonida::bcpack::Options{nullptr, true});
+            g = r.guessed;
+            if (r.status != leonida::bcpack::Status::ok) w = leonida::bcpack::status_name(r.status);
+            return r.status == leonida::bcpack::Status::ok;
+        };
+        const auto theirs = [&](std::vector<uint8_t>& out, size_t& g, const char*& w) {
+            return leonida::bcpack_dc::decode(source.data(), source.size(), mode, out.data(), out.size(), g, w);
+        };
+        const bool dc_first = use_dadacap();
+        const bool ok = dc_first ? theirs(blocks, guessed, why) : ours(blocks, guessed, why);
+        if (!crosscheck()) return ok;
+
+        std::vector<uint8_t> other(blocks.size());
+        size_t other_guessed = 0;
+        const char* other_why = "";
+        const bool other_ok = dc_first ? ours(other, other_guessed, other_why) : theirs(other, other_guessed, other_why);
+        struct Tally {
+            std::mutex m;
+            uint64_t requests = 0, same = 0, differ = 0, differing_blocks = 0, only_ours = 0, only_theirs = 0,
+                     neither = 0, guessed_ours = 0, guessed_theirs = 0;
+            uint64_t by_mode[8] = {};
+        };
+        static auto* t = new Tally;
+        const bool ours_ok = dc_first ? other_ok : ok, theirs_ok = dc_first ? ok : other_ok;
+        const std::vector<uint8_t>& ours_out = dc_first ? other : blocks;
+        const std::vector<uint8_t>& theirs_out = dc_first ? blocks : other;
+        std::lock_guard lock(t->m);
+        ++t->requests;
+        if (mode < 8) ++t->by_mode[mode];
+        t->guessed_ours += dc_first ? other_guessed : guessed;
+        t->guessed_theirs += dc_first ? guessed : other_guessed;
+        if (ours_ok && theirs_ok) {
+            const size_t bytes = leonida::bcpack::block_bytes(mode);
+            uint64_t diff = 0;
+            for (size_t at = 0; bytes && at + bytes <= ours_out.size(); at += bytes)
+                diff += std::memcmp(ours_out.data() + at, theirs_out.data() + at, bytes) != 0;
+            ++(diff ? t->differ : t->same);
+            t->differing_blocks += diff;
+        } else if (ours_ok) {
+            ++t->only_ours;
+        } else if (theirs_ok) {
+            ++t->only_theirs;
+        } else {
+            ++t->neither;
+        }
+        if ((t->requests & (t->requests - 1)) == 0)
+            std::fprintf(stderr,
+                         "[rt] dstorage: bcpack crosscheck: %llu requests (BC1 %llu, BC3 %llu, BC4 %llu, BC5 %llu, "
+                         "BC6H %llu, BC7 %llu): identical %llu, differ %llu (%llu blocks), only ours %llu, only "
+                         "prototype %llu, neither %llu; guessed blocks ours %llu, prototype %llu\n",
+                         (unsigned long long)t->requests, (unsigned long long)t->by_mode[1],
+                         (unsigned long long)t->by_mode[3], (unsigned long long)t->by_mode[4],
+                         (unsigned long long)t->by_mode[5], (unsigned long long)t->by_mode[6],
+                         (unsigned long long)t->by_mode[7], (unsigned long long)t->same,
+                         (unsigned long long)t->differ, (unsigned long long)t->differing_blocks,
+                         (unsigned long long)t->only_ours, (unsigned long long)t->only_theirs,
+                         (unsigned long long)t->neither, (unsigned long long)t->guessed_ours,
+                         (unsigned long long)t->guessed_theirs);
+        return ok;
+    }
+
     // A BCPack request whose checks have passed: the source, inflated first when it is zlib too, is decoded into BCn
-    // blocks (leonida::bcpack::decode) and copied to the destination only when all of it decoded.
+    // blocks (decode_bcpack) and copied to the destination only when all of it decoded.
     HRESULT unpack_request(const Entry& e, bool memory, unsigned mode) {
         const DSTORAGE_REQUEST& r = e.request;
         std::vector<uint8_t> source, blocks;
@@ -944,7 +1031,7 @@ private:
         }
         size_t guessed = 0;
         const char* why = "the zlib stream";
-        decoded = decoded && leonida::bcpack_dc::decode(source.data(), source.size(), mode, blocks.data(), blocks.size(), guessed, why);
+        if (decoded) decoded = decode_bcpack(source, mode, blocks, guessed, why);
         set_decompression_pending(-1);
         if (!decoded) {
             log_once(why, (std::string("a BCPack request could not be decoded: ") + why).c_str());
