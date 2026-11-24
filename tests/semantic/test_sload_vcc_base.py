@@ -23,9 +23,12 @@ TOOLS_DIR = os.environ.get("LEONIDA_TOOLS_DIR") or os.path.join(ROOT, "tools")
 sys.dont_write_bytecode = True
 if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
 
 import rdna2spirv  # noqa: E402
 from shader_ir import parse_line  # noqa: E402
+import support  # noqa: E402
 
 
 def _assemble_and_validate(spvasm: str) -> None:
@@ -120,6 +123,48 @@ class SloadVccBaseTest(unittest.TestCase):
         self.assertIn("OpLoad %uint %vcc", spvasm)
         self.assertIn("OpLoad %uint %vcc_hi", spvasm)
         _assemble_and_validate(spvasm)
+
+    def test_vcc_base_pointer_half_order_executes(self):
+        # Pin vcc_lo as bits [31:0] and vcc_hi as bits [63:32]; swapping or dropping a half reads the wrong address.
+        spv = support.translate_lines("ps_sload_vcc_order", [
+            "s_mov_b32 vcc_hi, 0x3",
+            "s_mov_b32 vcc_lo, 0x2000",
+            "s_load_dword s10, vcc, 0x4",
+            "s_waitcnt lgkmcnt(0)",
+            "v_mov_b32 v4, s10",
+            "exp mrt0 v4, v4, v4, v4 done vm",
+            "s_endpgm",
+        ])
+        _assemble_and_validate(spv)
+        got = support.mrt0_words(spv, memory={
+            0x00000003_00002004: 0xCAFEBABE,
+            0x00002000_00000007: 0xDEADBEEF,
+            0x00000000_00002004: 0xBAD00001,
+        })
+        self.assertEqual(got, [0xCAFEBABE, 0xCAFEBABE, 0xCAFEBABE, 0xCAFEBABE])
+
+    def test_vcc_base_aliasing_destination_executes(self):
+        # Destination [s104,s105,vcc_lo,vcc_hi] aliases the `vcc` base pair; both base halves must be read first.
+        spv = support.translate_lines("ps_sload_vcc_alias", [
+            "s_mov_b32 vcc_hi, 0x2",
+            "s_mov_b32 vcc_lo, 0x4000",
+            "s_load_dwordx4 [s104,s105,vcc_lo,vcc_hi], vcc, 0x10",
+            "s_waitcnt lgkmcnt(0)",
+            "v_mov_b32 v4, s104",
+            "v_mov_b32 v5, s105",
+            "v_mov_b32 v6, vcc_lo",
+            "v_mov_b32 v7, vcc_hi",
+            "exp mrt0 v4, v5, v6, v7 done vm",
+            "s_endpgm",
+        ])
+        _assemble_and_validate(spv)
+        got = support.mrt0_words(spv, memory={
+            0x00000002_00004010: 0x11223344,
+            0x00000002_00004014: 0x55667788,
+            0x00000002_00004018: 0x99AABBCC,
+            0x00000002_0000401C: 0xDDEEFF00,
+        })
+        self.assertEqual(got, [0x11223344, 0x55667788, 0x99AABBCC, 0xDDEEFF00])
 
 
 if __name__ == "__main__":
