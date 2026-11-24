@@ -28,6 +28,13 @@ add_executable(root_signature_test
   test/root_signature_test.cpp
 )
 target_link_libraries(root_signature_test PRIVATE gta6rt_root_signature)
+# Portable BCPack decoder for the DirectStorage worker (a port of tools/bcpack.py; no windows.h), with the table
+# header tools/bcpack_header.py writes. Its test is in the BUILD_TESTING block below.
+add_library(gta6rt_bcpack STATIC src/bcpack.cpp)
+target_include_directories(gta6rt_bcpack PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+if(MSVC)
+  target_compile_options(gta6rt_bcpack PRIVATE /W4 /permissive- /utf-8)
+endif()
 # AVX, OSXSAVE and XCR0 YMM state from synthetic CPUID/XCR0 words, plus one call on the real host.
 add_executable(host_cpu_test test/host_cpu_test.cpp src/host_cpu.cpp)
 target_include_directories(host_cpu_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -590,6 +597,14 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/translator_deps.cmake")
 if(BUILD_TESTING)
   add_executable(gfx10_tiling_test test/gfx10_tiling_test.cpp)
   add_test(NAME gfx10_tiling COMMAND gfx10_tiling_test)
+
+  # The BCPack decoder against tools/bcpack.py's answers for synthetic chunks (test/bcpack_vectors.h).
+  add_executable(bcpack_test test/bcpack_test.cpp)
+  target_link_libraries(bcpack_test PRIVATE gta6rt_bcpack)
+  if(MSVC)
+    target_compile_options(bcpack_test PRIVATE /W4 /permissive- /utf-8 /bigobj)
+  endif()
+  add_test(NAME bcpack COMMAND bcpack_test)
 
   add_executable(retire_tickets_test test/retire_tickets_test.cpp)
   add_test(NAME retire_tickets COMMAND retire_tickets_test)

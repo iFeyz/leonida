@@ -158,7 +158,16 @@ The first boot with the executable settles most of this: the dry-run report show
   decode order is DEFLATE, BCPack, swizzle; with both zlib and BCPack `IntermediateSize` is the size between them
   (the inflate's output, the BCPack decoder's input), and `FileOffset` must be 16-byte aligned. Each becomes a stage
   after `inflate_request`'s inflate and before its destination write, so the request checks above stay where they
-  are.
+  are. **The decoder itself exists** (`runtime/src/bcpack.h`, library `gta6rt_bcpack`, RT-BCPACK-DECODER): a port
+  of `tools/bcpack.py`'s lane layer and of its rebuilds for all six modes (BC1, BC3, BC4, BC5, BC6H, BC7), with the user's calibrated
+  history as an optional `History`. It has two policies: strict (the default), like `bcpack.decode`, refuses a chunk
+  that needs an unconfirmed history entry, an inferred BC7 signature, or a BC6H/BC7 block whose anchor or p-bit check fails;
+  lenient, for the request path, decodes such blocks anyway (from the zero state where the history is unknown, which
+  is all of BC6H's and BC7's built-in history today) and reports how many in `Result::guessed`, so a texture comes with a few
+  wrong blocks instead of missing. `bcpack_test` checks strict decoding against the Python decoder and lenient BC7
+  and BC6H decoding against its provisional mode, on synthetic chunks (`runtime/test/bcpack_vectors.py`). What is left here is the wiring: call `bcpack::decode` from `execute_request` once destination
+  pages exist, since every BCPack request measured on the retail title (modes 1, 5 and 7, issue #14 comment
+  7135719755) also has the destination-pages bit.
 - **Physical pages** (`SourceIsPhysicalPages`, `DestinationIsPhysicalPages`): arrays of 64 KiB page numbers from
   `XMemAllocatePhysicalPages`; needs the `xmem` shim to translate a page number to the address it mapped.
 - **GPU memory**: the console API has no GPU destinations of its own (memory is unified, so a destination is an
