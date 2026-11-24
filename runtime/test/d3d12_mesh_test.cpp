@@ -175,11 +175,12 @@ int main() {
         return !blob.empty() &&
                SUCCEEDED(device->CreateRootSignature(0, blob.data(), blob.size(), IID_PPV_ARGS(&root.p)));
     };
-    // Twenty constants: s8..s27 for a pixel shader, but past a mesh shader's 16-dword window (s16..s31).
-    const auto wide_root_signature = [&](ID3D12Device* device, Ref<ID3D12RootSignature>& root) {
+    // Twenty constants: s8..s27 for a pixel shader, but past a mesh shader's 16-dword window (s16..s31). Thirty:
+    // past the graphics window (24 from s8) and the compute one (28 from s4) too, as a retail start-up signature is.
+    const auto wide_root_signature = [&](ID3D12Device* device, Ref<ID3D12RootSignature>& root, UINT values = 20) {
         D3D12_ROOT_PARAMETER param{};
         param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-        param.Constants = {0, 0, 20};
+        param.Constants = {0, 0, values};
         D3D12_VERSIONED_ROOT_SIGNATURE_DESC root_desc{};
         root_desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_0;
         root_desc.Desc_1_0 = {1, &param, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_NONE};
@@ -488,6 +489,15 @@ int main() {
             list->RSSetViewports(1, &viewport);
             list6->DispatchMesh(1, 1, 1);
             EXPECT(list->Close() == E_INVALIDARG);
+            // Past every console window: still created, the graphics bind point keeping the PC layout from s0 until
+            // the argument block behind s[0:1] is modelled (refusing it stopped the retail title at start-up).
+            Ref<ID3D12RootSignature> huge;
+            EXPECT(wide_root_signature(device.p, huge, 30));
+            EXPECT(SUCCEEDED(list->Reset(allocator.p, mesh_pso.p)));
+            list->SetGraphicsRootSignature(huge.p);
+            list->RSSetViewports(1, &viewport);
+            list6->DispatchMesh(1, 1, 1);
+            EXPECT(list->Close() == E_INVALIDARG);  // a mesh shader still cannot read it
         }
         EXPECT(SUCCEEDED(queue->Signal(fence.p, 2)) && SUCCEEDED(fence->SetEventOnCompletion(2, nullptr)));
 
