@@ -1814,7 +1814,10 @@ not the mesh window is created with a log line, and `DispatchMesh` with it inval
 the graphics window (more than 24 dwords from s8) goes, on the console, to the argument block behind `s[0:1]`, which
 is modelled for compute only (ROOT-SIG-SPILL-MODEL); until it is for graphics, such a signature keeps `pack()`'s
 layout at the graphics bind point (from s0, two dwords per table, `RootArgumentLayout::graphics_console` false) rather
-than being refused: the retail title creates one at start-up (29..32 dwords) and stops if it is refused. Live evidence for
+than being refused: the retail title creates one at start-up (29..32 dwords) and stops if it is refused.
+`LEONIDA_GRAPHICS_ROOT_LAYOUT=pc` (diagnostic) gives every graphics signature that `pack()` layout, as before the
+console layout, so one build compares both on the retail title; `DispatchMesh` is then refused, compute is unchanged
+(`d3d12_mesh_test`). Live evidence for
 s8 and one dword per table: on the retail frame loop the VS of a textured draw reads table slots 0 and 2 through s8
 and its PS slot 1, which hold exactly the buffer, constants and texture the title bound (issue #14, comment
 7131556366, native Windows, RTX 5080). What a mesh shader reads in s8..s15 is not measured:
